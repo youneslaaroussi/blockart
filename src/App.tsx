@@ -1,9 +1,8 @@
-import _FieldPlugin from './components/FieldPlugin'
-import FieldPluginExample from './components/FieldPluginExample'
+import BlockArt from './components/BlockArt'
 import { FunctionComponent } from 'react'
 
 const App: FunctionComponent = () => {
-  return <FieldPluginExample />
+  return <BlockArt />
 }
 
 export default App
