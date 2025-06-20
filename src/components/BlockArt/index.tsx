@@ -5,7 +5,7 @@ import ImageUpload from './ImageUpload'
 import PromptInput from './PromptInput'
 import ImageProcessor from './ImageProcessor'
 import ImagePreview from './ImagePreview'
-import { useOpenAI } from '../../hooks/useOpenAI'
+import { useOpenAI, StreamingUpdate } from '../../hooks/useOpenAI'
 import { BlockArtData } from '../../types/BlockArt'
 import './BlockArt.css'
 
@@ -28,8 +28,11 @@ const BlockArt: FunctionComponent = () => {
   const [prompt, setPrompt] = useState<string>(data?.content?.prompt || '')
   const [editedImage, setEditedImage] = useState<string | null>(data?.content?.editedImage || null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [partialImage, setPartialImage] = useState<string | null>(null)
+  const [partialIndex, setPartialIndex] = useState<number>(0)
+  const [streamingProgress, setStreamingProgress] = useState<number>(0)
 
-  const { processImage, error } = useOpenAI(apiKey)
+  const { processImageWithStreaming, error } = useOpenAI(apiKey)
 
   if (type !== 'loaded') {
     return null
@@ -53,9 +56,31 @@ const BlockArt: FunctionComponent = () => {
     setPrompt(promptText)
     setCurrentStep('processing')
     setIsProcessing(true)
+    setPartialImage(null)
+    setPartialIndex(0)
+    setStreamingProgress(0)
 
     try {
-      const result = await processImage(originalImage!, promptText)
+      const result = await processImageWithStreaming(
+        originalImage!, 
+        promptText,
+        (update: StreamingUpdate) => {
+          if (update.partialImage) {
+            setPartialImage(update.partialImage)
+            setPartialIndex(update.partialIndex || 0)
+            // Calculate progress based on partial index (0-2 maps to 20-80%)
+            const progress = 20 + (update.partialIndex || 0) * 30
+            setStreamingProgress(progress)
+          }
+          if (update.finalImage) {
+            setEditedImage(update.finalImage)
+            setStreamingProgress(100)
+          }
+          if (update.isComplete) {
+            setCurrentStep('preview')
+          }
+        }
+      )
       setEditedImage(result)
       setCurrentStep('preview')
     } catch (err) {
@@ -70,7 +95,8 @@ const BlockArt: FunctionComponent = () => {
       originalImage,
       editedImage,
       prompt,
-      apiKey
+      apiKey,
+      versions: []
     }
     actions.setContent(blockArtData)
     closeModal()
@@ -81,6 +107,9 @@ const BlockArt: FunctionComponent = () => {
     setOriginalImage(null)
     setEditedImage(null)
     setPrompt('')
+    setPartialImage(null)
+    setPartialIndex(0)
+    setStreamingProgress(0)
   }
 
   return (
@@ -129,6 +158,8 @@ const BlockArt: FunctionComponent = () => {
           <ImageUpload 
             onImageUpload={handleImageUpload}
             onBack={() => setCurrentStep('setup')}
+            spaceId={data?.spaceId?.toString()}
+            managementToken={data?.options?.managementToken}
           />
         )}
 
@@ -145,6 +176,9 @@ const BlockArt: FunctionComponent = () => {
             isProcessing={isProcessing}
             originalImage={originalImage}
             prompt={prompt}
+            partialImage={partialImage}
+            partialIndex={partialIndex}
+            streamingProgress={streamingProgress}
           />
         )}
 

@@ -2,6 +2,13 @@ import { useState, useCallback } from 'react'
 import OpenAI from 'openai'
 import { convertImageToBase64 } from '../utils/imageUtils'
 
+export interface StreamingUpdate {
+  partialImage?: string
+  partialIndex?: number
+  isComplete?: boolean
+  finalImage?: string
+}
+
 export const useOpenAI = (apiKey: string) => {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -73,6 +80,132 @@ Keep the overall composition and style similar, but make the requested changes. 
     }
   }, [apiKey])
 
+  const processImageWithStreaming = useCallback(async (
+    imageData: string, 
+    prompt: string,
+    onUpdate: (update: StreamingUpdate) => void
+  ): Promise<string> => {
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required')
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const openai = new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true
+      })
+
+      // Use streaming Responses API with GPT Image 1 for image editing
+      const stream = await openai.responses.create({
+        model: "gpt-4.1",
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Edit this image according to the following instruction: ${prompt}
+
+Keep the overall composition and style similar, but make the requested changes. Generate a high-quality edited version of this image.`
+              },
+              {
+                type: "input_image",
+                image_url: imageData,
+                detail: "high"
+              }
+            ]
+          }
+        ],
+        tools: [
+          {
+            type: "image_generation",
+            quality: "high",
+            partial_images: 2
+          }
+        ],
+        stream: true
+      })
+
+      let finalImage: string | null = null
+
+      for await (const event of stream) {
+        console.log('Stream event:', event.type, event)
+        
+        if (event.type === "response.image_generation_call.partial_image") {
+          const partialImage = `data:image/png;base64,${(event as any).partial_image_b64}`
+          onUpdate({
+            partialImage,
+            partialIndex: (event as any).partial_image_index,
+            isComplete: false
+          })
+        } else if (event.type === "response.completed") {
+          // Stream is complete, get final result from response output
+          const response = (event as any).response
+          console.log('Response completed:', response)
+          
+          if (response?.output) {
+            console.log('Response output:', response.output)
+            const imageData_result = response.output
+              .filter((output: any) => output.type === "image_generation_call")
+              .map((output: any) => output.result)
+            
+            console.log('Image data result:', imageData_result)
+            
+            if (imageData_result.length > 0) {
+              finalImage = `data:image/png;base64,${imageData_result[0]}`
+              onUpdate({
+                finalImage,
+                isComplete: true
+              })
+            }
+          }
+        } else if (event.type.includes("image_generation")) {
+          // Handle any other image generation events
+          console.log('Image generation event:', event)
+        }
+      }
+
+      if (!finalImage) {
+        console.log('No final image from stream, trying fallback...')
+        // Fallback: try to get the final result from the stream object itself
+        try {
+          const response = await stream
+          console.log('Stream response:', response)
+          if ((response as any)?.output) {
+            const imageData_result = (response as any).output
+              .filter((output: any) => output.type === "image_generation_call")
+              .map((output: any) => output.result)
+            
+            if (imageData_result.length > 0) {
+              finalImage = `data:image/png;base64,${imageData_result[0]}`
+              onUpdate({
+                finalImage,
+                isComplete: true
+              })
+              return finalImage
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Fallback failed:', fallbackError)
+        }
+        
+        throw new Error('No final image generated from stream')
+      }
+
+      return finalImage
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred while processing the image'
+      setError(errorMessage)
+      throw new Error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [apiKey])
+
   const testApiKey = useCallback(async (): Promise<boolean> => {
     if (!apiKey) {
       return false
@@ -92,8 +225,52 @@ Keep the overall composition and style similar, but make the requested changes. 
     }
   }, [apiKey])
 
+  const generateAltText = useCallback(async (imageData: string): Promise<string> => {
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required')
+    }
+
+    try {
+      const openai = new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true
+      })
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Generate a concise, accessibility-friendly alt text for this image. Focus on the main subject and important visual elements. Keep it under 100 characters and descriptive for screen readers."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: imageData,
+                  detail: "low" // Using low detail for faster processing
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 100
+      })
+
+      return response.choices[0]?.message?.content?.trim() || ""
+    } catch (err) {
+      console.error('Error generating alt text:', err)
+      // Return empty string on error rather than throwing
+      return ""
+    }
+  }, [apiKey])
+
   return {
     processImage,
+    processImageWithStreaming,
+    generateAltText,
     testApiKey,
     error,
     isLoading
