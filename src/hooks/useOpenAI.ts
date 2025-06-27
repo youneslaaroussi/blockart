@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import OpenAI from 'openai'
-import { convertImageToBase64 } from '../utils/imageUtils'
+import { convertImageToBase64, convertCompactMaskToPNG } from '../utils/imageUtils'
 
 export interface StreamingUpdate {
   partialImage?: string
@@ -83,7 +83,8 @@ Keep the overall composition and style similar, but make the requested changes. 
   const processImageWithStreaming = useCallback(async (
     imageData: string, 
     prompt: string,
-    onUpdate: (update: StreamingUpdate) => void
+    onUpdate: (update: StreamingUpdate) => void,
+    maskData?: string
   ): Promise<string> => {
     if (!apiKey) {
       throw new Error('OpenAI API key is required')
@@ -98,41 +99,246 @@ Keep the overall composition and style similar, but make the requested changes. 
         dangerouslyAllowBrowser: true
       })
 
-      // Use streaming Responses API with GPT Image 1 for image editing
+      // Log original image details for debugging
+      if (imageData) {
+        try {
+          const img = new Image()
+          img.onload = () => {
+            console.log('Original image dimensions:', {
+              width: img.width,
+              height: img.height,
+              dataUrlLength: imageData.length
+            })
+          }
+          img.src = imageData
+        } catch (e) {
+          console.warn('Could not load image for dimension check:', e)
+        }
+      }
+
+      let maskFileId: string | undefined = undefined
+      let originalImageFileId: string | undefined = undefined
+
+      // If we have mask data, upload both original image and mask as files
+      if (maskData) {
+        try {
+          console.log('Uploading mask and original image as files...')
+          
+          // Upload original image as file first
+          const originalImageResponse = await fetch(imageData)
+          const originalImageBlob = await originalImageResponse.blob()
+          const originalImageFile = new File([originalImageBlob], 'image.png', { type: 'image/png' })
+          
+          // LOG: Original image for inspection
+          console.log('🖼️ ORIGINAL IMAGE BEING UPLOADED:')
+          console.log('Data URL (copy to browser to view):', imageData.substring(0, 100) + '...')
+          console.log('Blob size:', originalImageBlob.size, 'bytes')
+          console.log('Blob type:', originalImageBlob.type)
+          
+          const uploadedOriginalImage = await openai.files.create({
+            file: originalImageFile,
+            purpose: 'vision'
+          })
+          originalImageFileId = uploadedOriginalImage.id
+          console.log('Original image uploaded with file ID:', originalImageFileId)
+          
+          // Convert compact mask to PNG if needed
+          let maskDataUrl = maskData
+          if (maskData.startsWith('MASK:')) {
+            console.log('Converting compact mask to PNG...')
+            const convertedMask = convertCompactMaskToPNG(maskData)
+            if (!convertedMask) {
+              throw new Error('Failed to convert compact mask to PNG')
+            }
+            maskDataUrl = convertedMask
+            console.log('Compact mask converted successfully')
+            console.log('Original compact mask:', maskData.substring(0, 200) + '...')
+          }
+          
+          // LOG: Mask image for inspection
+          console.log('🎭 MASK IMAGE BEING UPLOADED:')
+          console.log('Mask data URL (copy to browser to view):', maskDataUrl)
+          console.log('Mask data length:', maskDataUrl.length)
+          
+          // Create downloadable links for inspection
+          console.log('📥 INSPECT UPLOADED FILES:')
+          console.log('Right-click and "Save link as..." to download:')
+          console.log('Original image:', imageData)
+          console.log('Mask image:', maskDataUrl)
+          
+          // Upload mask file
+          const response = await fetch(maskDataUrl)
+          const blob = await response.blob()
+          
+          // Log mask file details for debugging
+          console.log('Mask blob size:', blob.size, 'bytes')
+          console.log('Mask blob type:', blob.type)
+          
+          // Also check mask image dimensions
+          try {
+            const maskImg = new Image()
+            maskImg.onload = () => {
+              console.log('Mask image dimensions:', {
+                width: maskImg.width,
+                height: maskImg.height
+              })
+              
+              // Additional validation
+              if (maskImg.width === 0 || maskImg.height === 0) {
+                console.error('❌ MASK HAS ZERO DIMENSIONS!')
+              }
+              
+              // Check if mask has transparency
+              const canvas = document.createElement('canvas')
+              const ctx = canvas.getContext('2d')
+              canvas.width = maskImg.width
+              canvas.height = maskImg.height
+              ctx?.drawImage(maskImg, 0, 0)
+              const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height)
+              
+              if (imageData) {
+                let hasAlpha = false
+                for (let i = 3; i < imageData.data.length; i += 4) {
+                  if (imageData.data[i] < 255) {
+                    hasAlpha = true
+                    break
+                  }
+                }
+                console.log('Mask has alpha channel:', hasAlpha)
+                
+                // Count white vs black pixels
+                let whitePixels = 0
+                let blackPixels = 0
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                  const r = imageData.data[i]
+                  const g = imageData.data[i + 1]
+                  const b = imageData.data[i + 2]
+                  const alpha = imageData.data[i + 3]
+                  
+                  if (alpha > 0) {
+                    if (r > 128 && g > 128 && b > 128) {
+                      whitePixels++
+                    } else {
+                      blackPixels++
+                    }
+                  }
+                }
+                console.log('Mask pixel analysis:', { whitePixels, blackPixels, total: whitePixels + blackPixels })
+                
+                if (whitePixels === 0 && blackPixels === 0) {
+                  console.error('❌ MASK APPEARS TO BE COMPLETELY TRANSPARENT!')
+                } else if (whitePixels === 0) {
+                  console.error('❌ MASK HAS NO WHITE PIXELS (nothing to edit)!')
+                } else if (blackPixels === 0) {
+                  console.warn('⚠️ MASK HAS NO BLACK PIXELS (will edit entire image)!')
+                }
+              }
+            }
+            maskImg.onerror = (e) => {
+              console.error('❌ FAILED TO LOAD MASK IMAGE:', e)
+            }
+            maskImg.src = maskDataUrl
+          } catch (e) {
+            console.warn('Could not load mask for dimension check:', e)
+          }
+          
+          // Create a File object with proper PNG type
+          const file = new File([blob], 'mask.png', { type: 'image/png' })
+          
+          // Upload the mask file
+          const maskFile = await openai.files.create({
+            file: file,
+            purpose: 'vision'
+          })
+          
+          maskFileId = maskFile.id
+          console.log('Mask uploaded with file ID:', maskFileId)
+          
+          // Log additional details about the uploaded files
+          console.log('Uploaded files details:', {
+            originalImage: {
+              id: uploadedOriginalImage.id,
+              bytes: uploadedOriginalImage.bytes,
+              filename: uploadedOriginalImage.filename
+            },
+            mask: {
+              id: maskFile.id,
+              bytes: maskFile.bytes,
+              filename: maskFile.filename
+            }
+          })
+        } catch (uploadError) {
+          console.error('Failed to upload files:', uploadError)
+          // Provide more specific error message
+          if (uploadError instanceof Error) {
+            if (uploadError.message.includes('size') || uploadError.message.includes('dimension')) {
+              throw new Error('File upload failed: The mask dimensions don\'t match the image. Please try recreating the mask.')
+            } else if (uploadError.message.includes('format')) {
+              throw new Error('File upload failed: Invalid image format. Please ensure the mask is a valid PNG with alpha channel.')
+            }
+          }
+          throw new Error('Failed to upload image and mask files. Please try creating a simpler mask.')
+        }
+      }
+
+      // Create input content array - use file_id when we have mask, image_url otherwise
+      const inputContent = maskData && originalImageFileId ? [
+        {
+          type: "input_text" as const,
+          text: prompt // Use the raw prompt without mentioning mask - OpenAI handles mask automatically
+        },
+        {
+          type: "input_image" as const,
+          file_id: originalImageFileId,
+          detail: "high" as const
+        }
+      ] : [
+        {
+          type: "input_text" as const,
+          text: `Generate an edited version of this image: ${prompt}`
+        },
+        {
+          type: "input_image" as const,
+          image_url: imageData,
+          detail: "high" as const
+        }
+      ]
+
+      // Configure tools with mask if provided
+      const tools = [
+        {
+          type: "image_generation" as const,
+          quality: "high" as const,
+          partial_images: 2,
+          ...(maskFileId && {
+            input_image_mask: {
+              file_id: maskFileId
+            }
+          })
+        }
+      ]
+      
+      console.log('Tools configuration:', JSON.stringify(tools, null, 2))
+      console.log('Input content:', JSON.stringify(inputContent, null, 2))
+
+      // Use streaming Responses API with GPT-4o for better inpainting support
       const stream = await openai.responses.create({
-        model: "gpt-4.1",
+        model: "gpt-4o", // Always use gpt-4o for image generation as per docs
         input: [
           {
             role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: `Edit this image according to the following instruction: ${prompt}
-
-Keep the overall composition and style similar, but make the requested changes. Generate a high-quality edited version of this image.`
-              },
-              {
-                type: "input_image",
-                image_url: imageData,
-                detail: "high"
-              }
-            ]
+            content: inputContent,
           }
         ],
-        tools: [
-          {
-            type: "image_generation",
-            quality: "high",
-            partial_images: 2
-          }
-        ],
-        stream: true
+        tools,
+        stream: true,
       })
 
       let finalImage: string | null = null
 
       for await (const event of stream) {
-        console.log('Stream event:', event.type, event)
+        console.log('Stream event type:', event.type)
+        console.log('Stream event data:', JSON.stringify(event, null, 2))
         
         if (event.type === "response.image_generation_call.partial_image") {
           const partialImage = `data:image/png;base64,${(event as any).partial_image_b64}`
@@ -148,6 +354,30 @@ Keep the overall composition and style similar, but make the requested changes. 
           
           if (response?.output) {
             console.log('Response output:', response.output)
+            
+            // Check for text responses - but don't treat success messages as errors
+            const textResponses = response.output
+              .filter((output: any) => output.type === "message")
+              .flatMap((output: any) => output.content)
+              .filter((content: any) => content.type === "output_text")
+              .map((content: any) => content.text)
+            
+            if (textResponses.length > 0) {
+              const textMessage = textResponses[0]
+              console.log('API text response:', textMessage)
+              
+              // Only treat as error if it's actually an error message, not a success confirmation
+              if (textMessage.toLowerCase().includes('unable to') || 
+                  textMessage.toLowerCase().includes('cannot') || 
+                  textMessage.toLowerCase().includes('error') ||
+                  textMessage.toLowerCase().includes('policy') ||
+                  textMessage.toLowerCase().includes('inappropriate')) {
+                throw new Error(`Content policy rejection: ${textMessage}`)
+              } else {
+                console.log('Success message from API:', textMessage)
+              }
+            }
+            
             const imageData_result = response.output
               .filter((output: any) => output.type === "image_generation_call")
               .map((output: any) => output.result)
@@ -161,6 +391,256 @@ Keep the overall composition and style similar, but make the requested changes. 
                 isComplete: true
               })
             }
+          }
+        } else if ((event as any).type === "response.image_generation_call.done") {
+          // Alternative completion event
+          console.log('Image generation call done:', event)
+          const callData = (event as any).image_generation_call
+          if (callData?.result) {
+            finalImage = `data:image/png;base64,${callData.result}`
+            onUpdate({
+              finalImage,
+              isComplete: true
+            })
+          }
+        } else if (event.type.includes("image_generation")) {
+          // Handle any other image generation events
+          console.log('Image generation event:', event)
+        }
+      }
+
+      // Clean up uploaded files
+      if (maskFileId) {
+        try {
+          await openai.files.delete(maskFileId)
+          console.log('Cleaned up mask file:', maskFileId)
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup mask file:', cleanupError)
+        }
+      }
+      
+      if (originalImageFileId) {
+        try {
+          await openai.files.delete(originalImageFileId)
+          console.log('Cleaned up original image file:', originalImageFileId)
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup original image file:', cleanupError)
+        }
+      }
+
+      if (!finalImage) {
+        console.log('No final image from stream, trying fallback...')
+        // Fallback: try to get the final result from the stream object itself
+        try {
+          const response = await stream
+          console.log('Stream response:', response)
+          if ((response as any)?.output) {
+            const imageData_result = (response as any).output
+              .filter((output: any) => output.type === "image_generation_call")
+              .map((output: any) => output.result)
+            
+            if (imageData_result.length > 0) {
+              finalImage = `data:image/png;base64,${imageData_result[0]}`
+              onUpdate({
+                finalImage,
+                isComplete: true
+              })
+              return finalImage
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Fallback failed:', fallbackError)
+        }
+        
+        throw new Error('No final image generated from stream')
+      }
+
+      return finalImage
+
+    } catch (err) {
+      let errorMessage = 'An error occurred while processing the image'
+      
+      if (err instanceof Error) {
+        // Keep content policy errors as-is for better user messaging
+        if (err.message.includes('Content policy rejection')) {
+          errorMessage = err.message
+        }
+        // Improve other error messages
+        else if (err.message.includes('API key') || err.message.includes('401')) {
+          errorMessage = 'API key error: Please check your OpenAI API key and billing status.'
+        }
+        else if (err.message.includes('network') || err.message.includes('fetch') || err.message.includes('connection')) {
+          errorMessage = 'Network error: Please check your internet connection and try again.'
+        }
+        else if (err.message.includes('rate limit') || err.message.includes('429')) {
+          errorMessage = 'Rate limit exceeded: Please wait a moment before trying again.'
+        }
+        else if (err.message.includes('quota') || err.message.includes('billing') || err.message.includes('insufficient')) {
+          errorMessage = 'Billing error: Your OpenAI account may have insufficient credits.'
+        }
+        else if (err.message.includes('No final image generated')) {
+          errorMessage = 'Image generation incomplete: The AI service failed to generate a complete image. This may be due to content policy restrictions or technical issues.'
+        }
+        else if (err.message.includes('Failed to upload files')) {
+          errorMessage = 'File upload failed: There was an issue uploading your image and mask for inpainting. Please try creating a simpler mask.'
+        }
+        else {
+          errorMessage = `Processing failed: ${err.message}`
+        }
+      }
+      
+      console.error('OpenAI streaming error:', err)
+      setError(errorMessage)
+      throw new Error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [apiKey])
+
+  const generateImageFromText = useCallback(async (prompt: string): Promise<string> => {
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required')
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const openai = new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true
+      })
+
+      const response = await openai.responses.create({
+        model: "gpt-4.1-mini",
+        input: prompt,
+        tools: [{
+          type: "image_generation",
+          quality: "high"
+        }],
+      })
+
+      // Extract the generated image from the response
+      const imageData_result = response.output
+        .filter((output) => output.type === "image_generation_call")
+        .map((output) => output.result)
+
+      if (imageData_result.length === 0) {
+        throw new Error('No image generated')
+      }
+
+      // The result is already base64 encoded
+      const base64Image = imageData_result[0]
+      
+      // Return as data URL
+      return `data:image/png;base64,${base64Image}`
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred while generating the image'
+      setError(errorMessage)
+      throw new Error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [apiKey])
+
+  const generateImageFromTextWithStreaming = useCallback(async (
+    prompt: string,
+    onUpdate: (update: StreamingUpdate) => void
+  ): Promise<string> => {
+    if (!apiKey) {
+      throw new Error('OpenAI API key is required')
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const openai = new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true
+      })
+
+      // Use streaming Responses API for text-to-image generation
+      const stream = await openai.responses.create({
+        model: "gpt-4.1",
+        input: prompt,
+        tools: [{
+          type: "image_generation",
+          quality: "high",
+          partial_images: 2
+        }],
+        stream: true,
+      })
+
+      let finalImage: string | null = null
+
+      for await (const event of stream) {
+        console.log('Stream event type:', event.type)
+        console.log('Stream event data:', JSON.stringify(event, null, 2))
+        
+        if (event.type === "response.image_generation_call.partial_image") {
+          const partialImage = `data:image/png;base64,${(event as any).partial_image_b64}`
+          onUpdate({
+            partialImage,
+            partialIndex: (event as any).partial_image_index,
+            isComplete: false
+          })
+        } else if (event.type === "response.completed") {
+          // Stream is complete, get final result from response output
+          const response = (event as any).response
+          console.log('Response completed:', response)
+          
+          if (response?.output) {
+            console.log('Response output:', response.output)
+            
+            // Check for text responses - but don't treat success messages as errors
+            const textResponses = response.output
+              .filter((output: any) => output.type === "message")
+              .flatMap((output: any) => output.content)
+              .filter((content: any) => content.type === "output_text")
+              .map((content: any) => content.text)
+            
+            if (textResponses.length > 0) {
+              const textMessage = textResponses[0]
+              console.log('API text response:', textMessage)
+              
+              // Only treat as error if it's actually an error message, not a success confirmation
+              if (textMessage.toLowerCase().includes('unable to') || 
+                  textMessage.toLowerCase().includes('cannot') || 
+                  textMessage.toLowerCase().includes('error') ||
+                  textMessage.toLowerCase().includes('policy') ||
+                  textMessage.toLowerCase().includes('inappropriate')) {
+                throw new Error(`Content policy rejection: ${textMessage}`)
+              } else {
+                console.log('Success message from API:', textMessage)
+              }
+            }
+            
+            const imageData_result = response.output
+              .filter((output: any) => output.type === "image_generation_call")
+              .map((output: any) => output.result)
+            
+            console.log('Image data result:', imageData_result)
+            
+            if (imageData_result.length > 0) {
+              finalImage = `data:image/png;base64,${imageData_result[0]}`
+              onUpdate({
+                finalImage,
+                isComplete: true
+              })
+            }
+          }
+        } else if ((event as any).type === "response.image_generation_call.done") {
+          // Alternative completion event
+          console.log('Image generation call done:', event)
+          const callData = (event as any).image_generation_call
+          if (callData?.result) {
+            finalImage = `data:image/png;base64,${callData.result}`
+            onUpdate({
+              finalImage,
+              isComplete: true
+            })
           }
         } else if (event.type.includes("image_generation")) {
           // Handle any other image generation events
@@ -198,30 +678,39 @@ Keep the overall composition and style similar, but make the requested changes. 
       return finalImage
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred while processing the image'
+      let errorMessage = 'An error occurred while generating the image'
+      
+      if (err instanceof Error) {
+        // Keep content policy errors as-is for better user messaging
+        if (err.message.includes('Content policy rejection')) {
+          errorMessage = err.message
+        }
+        // Improve other error messages
+        else if (err.message.includes('API key') || err.message.includes('401')) {
+          errorMessage = 'API key error: Please check your OpenAI API key and billing status.'
+        }
+        else if (err.message.includes('network') || err.message.includes('fetch') || err.message.includes('connection')) {
+          errorMessage = 'Network error: Please check your internet connection and try again.'
+        }
+        else if (err.message.includes('rate limit') || err.message.includes('429')) {
+          errorMessage = 'Rate limit exceeded: Please wait a moment before trying again.'
+        }
+        else if (err.message.includes('quota') || err.message.includes('billing') || err.message.includes('insufficient')) {
+          errorMessage = 'Billing error: Your OpenAI account may have insufficient credits.'
+        }
+        else if (err.message.includes('No final image generated')) {
+          errorMessage = 'Image generation incomplete: The AI service failed to generate a complete image. This may be due to content policy restrictions or technical issues.'
+        }
+        else {
+          errorMessage = `Generation failed: ${err.message}`
+        }
+      }
+      
+      console.error('OpenAI text-to-image error:', err)
       setError(errorMessage)
       throw new Error(errorMessage)
     } finally {
       setIsLoading(false)
-    }
-  }, [apiKey])
-
-  const testApiKey = useCallback(async (): Promise<boolean> => {
-    if (!apiKey) {
-      return false
-    }
-
-    try {
-      const openai = new OpenAI({
-        apiKey,
-        dangerouslyAllowBrowser: true
-      })
-
-      // Test the API key by making a simple request
-      await openai.models.list()
-      return true
-    } catch {
-      return false
     }
   }, [apiKey])
 
@@ -267,9 +756,30 @@ Keep the overall composition and style similar, but make the requested changes. 
     }
   }, [apiKey])
 
+  const testApiKey = useCallback(async (): Promise<boolean> => {
+    if (!apiKey) {
+      return false
+    }
+
+    try {
+      const openai = new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true
+      })
+
+      // Test the API key by making a simple request
+      await openai.models.list()
+      return true
+    } catch {
+      return false
+    }
+  }, [apiKey])
+
   return {
     processImage,
     processImageWithStreaming,
+    generateImageFromText,
+    generateImageFromTextWithStreaming,
     generateAltText,
     testApiKey,
     error,

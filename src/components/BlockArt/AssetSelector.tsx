@@ -1,19 +1,21 @@
 import { FunctionComponent, useState, useEffect } from 'react'
 import { StoryblokAsset } from '../../types/BlockArt'
-import { StoryblokAssetsAPI, getAssetUrl } from '../../utils/storyblokAssets'
+import { StoryblokAssetsAPI } from '../../utils/storyblokAssets'
 
 interface AssetSelectorProps {
-  onAssetSelect: (imageData: string, asset: StoryblokAsset) => void
-  onClose: () => void
   spaceId: string
   managementToken: string
+  region?: 'us' | 'eu' | 'ca' | 'ap' | 'cn'
+  onSelect: (asset: StoryblokAsset) => void
+  onClose: () => void
 }
 
 const AssetSelector: FunctionComponent<AssetSelectorProps> = ({ 
-  onAssetSelect, 
-  onClose,
-  spaceId,
-  managementToken 
+  spaceId, 
+  managementToken, 
+  region,
+  onSelect, 
+  onClose 
 }) => {
   const [assets, setAssets] = useState<StoryblokAsset[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,38 +23,33 @@ const AssetSelector: FunctionComponent<AssetSelectorProps> = ({
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null)
-
-  const assetsAPI = new StoryblokAssetsAPI(spaceId, managementToken)
+  const [selectedAsset, setSelectedAsset] = useState<StoryblokAsset | null>(null)
 
   useEffect(() => {
-    loadAssets()
-  }, [page])
-
-  const loadAssets = async () => {
-    try {
+    const fetchInitialAssets = async () => {
       setLoading(true)
-      setError(null)
-      const result = await assetsAPI.getAssets(page, 24)
-      
-      if (page === 1) {
-        setAssets(result.assets)
-      } else {
-        setAssets(prev => [...prev, ...result.assets])
+      const assetsAPI = new StoryblokAssetsAPI(spaceId, managementToken, region)
+      try {
+        const { assets: fetchedAssets, total } = await assetsAPI.getAssets(1, 100) // Fetch more initially
+        setAssets(fetchedAssets)
+        setTotal(total)
+        setLoading(false)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load assets')
+        setLoading(false)
       }
-      
-      setTotal(result.total)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load assets')
-    } finally {
-      setLoading(false)
     }
-  }
+
+    if (spaceId && managementToken) {
+      fetchInitialAssets()
+    }
+  }, [spaceId, managementToken, region])
 
   const handleAssetClick = async (asset: StoryblokAsset) => {
     setSelectedAssetId(asset.id)
     
     try {
-      const imageUrl = getAssetUrl(asset)
+      const imageUrl = asset.filename
       if (!imageUrl) {
         throw new Error('Asset URL not found')
       }
@@ -64,7 +61,7 @@ const AssetSelector: FunctionComponent<AssetSelectorProps> = ({
       const reader = new FileReader()
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          onAssetSelect(reader.result, asset)
+          onSelect(asset)
         }
       }
       reader.readAsDataURL(blob)
@@ -75,9 +72,18 @@ const AssetSelector: FunctionComponent<AssetSelectorProps> = ({
     }
   }
 
-  const loadMore = () => {
-    if (!loading && assets.length < total) {
+  const handleLoadMore = async () => {
+    if (loading || assets.length >= total) return
+    setLoading(true)
+    const assetsAPI = new StoryblokAssetsAPI(spaceId, managementToken, region)
+    try {
+      const { assets: newAssets } = await assetsAPI.getAssets(page + 1, 25)
+      setAssets(prev => [...prev, ...newAssets])
       setPage(prev => prev + 1)
+      setLoading(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more assets')
+      setLoading(false)
     }
   }
 
@@ -114,29 +120,17 @@ const AssetSelector: FunctionComponent<AssetSelectorProps> = ({
             {assets.map((asset) => (
               <div
                 key={asset.id}
-                className={`asset-item ${selectedAssetId === asset.id ? 'loading' : ''}`}
+                className={`asset-item ${selectedAssetId === asset.id ? 'selected' : ''}`}
                 onClick={() => handleAssetClick(asset)}
               >
-                <div className="asset-image">
-                  <img
-                    src={getAssetUrl(asset)}
-                    alt={asset.alt || asset.filename}
-                    loading="lazy"
-                  />
-                  {selectedAssetId === asset.id && (
-                    <div className="asset-loading">
-                      <div className="spinner"></div>
-                    </div>
-                  )}
-                </div>
-                <div className="asset-info">
-                  <div className="asset-filename">{asset.filename}</div>
-                  {asset.alt && (
-                    <div className="asset-alt">{asset.alt}</div>
-                  )}
-                  <div className="asset-meta">
-                    {Math.round(asset.content_length / 1024)}KB
-                  </div>
+                <img
+                  src={asset.filename}
+                  alt={asset.alt || 'Storyblok asset'}
+                  className="asset-thumbnail"
+                  loading="lazy"
+                />
+                <div className="asset-overlay">
+                  <p className="asset-filename">{asset.title || asset.filename.split('/').pop()}</p>
                 </div>
               </div>
             ))}
@@ -147,7 +141,7 @@ const AssetSelector: FunctionComponent<AssetSelectorProps> = ({
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={loadMore}
+                onClick={handleLoadMore}
                 disabled={loading}
               >
                 {loading ? 'Loading...' : `Load More (${assets.length}/${total})`}

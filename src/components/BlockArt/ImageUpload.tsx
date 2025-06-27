@@ -1,25 +1,18 @@
 import { FunctionComponent, useState, useRef } from 'react'
 import { resizeImage, validateImageFile } from '../../utils/imageUtils'
-import { StoryblokAsset } from '../../types/BlockArt'
-import AssetSelector from './AssetSelector'
 
 interface ImageUploadProps {
-  onImageUpload: (imageData: string, asset?: StoryblokAsset) => void
+  onImageUpload: (imageData: string) => void
   onBack: () => void
-  spaceId?: string
-  managementToken?: string
 }
 
 const ImageUpload: FunctionComponent<ImageUploadProps> = ({ 
   onImageUpload, 
   onBack, 
-  spaceId, 
-  managementToken 
 }) => {
   const [isDragging, setIsDragging] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showAssetSelector, setShowAssetSelector] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = async (file: File) => {
@@ -41,13 +34,6 @@ const ImageUpload: FunctionComponent<ImageUploadProps> = ({
       setIsProcessing(false)
     }
   }
-
-  const handleAssetSelect = (imageData: string, asset: StoryblokAsset) => {
-    setShowAssetSelector(false)
-    onImageUpload(imageData, asset)
-  }
-
-  const canUseAssets = spaceId && managementToken
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -83,136 +69,61 @@ const ImageUpload: FunctionComponent<ImageUploadProps> = ({
   return (
     <div className="image-upload">
       <div className="step-header">
-        <h2>Step 2: Select Image</h2>
-        <p>Choose an image from your Storyblok assets or upload a new one.</p>
+        <h2>Upload Image</h2>
+        <p>Upload an image from your computer that you want to edit with AI.</p>
       </div>
+      
+      <div 
+        className={`upload-area ${isDragging ? 'dragging' : ''} ${isProcessing ? 'processing' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={!isProcessing ? openFileDialog : undefined}
+        style={{ cursor: isProcessing ? 'not-allowed' : 'pointer' }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileInputChange}
+          style={{ display: 'none' }}
+          disabled={isProcessing}
+        />
 
-      {/* Primary Option: Storyblok Assets */}
-      {canUseAssets ? (
-        <div className="primary-option">
-          <div className="asset-selector-area">
-            <div className="asset-selector-content">
-              <div className="asset-selector-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <polyline
-                    points="3.27,6.96 12,12.01 20.73,6.96"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <line
-                    x1="12"
-                    y1="22.08"
-                    x2="12"
-                    y2="12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              <h3>Select from Storyblok Assets</h3>
-              <p>Choose an image from your asset library</p>
+        {isProcessing ? (
+          <div className="upload-processing">
+            <div className="spinner"></div>
+            <p>Processing image...</p>
+            <small style={{ color: 'var(--muted)', marginTop: 'var(--space-2)' }}>
+              Optimizing for AI processing
+            </small>
+          </div>
+        ) : (
+          <div className="upload-content">
+            <div className="upload-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-large"
-              onClick={() => setShowAssetSelector(true)}
-              disabled={isProcessing}
-            >
-              Browse Assets
-            </button>
+            <h3>Drop image here or click to browse</h3>
+            <p>Choose an image file from your computer</p>
+            <div className="upload-requirements">
+              <small>Supported formats: JPEG, PNG, WebP</small>
+              <small>Maximum size: 10MB</small>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="no-assets-message">
-          <p>Storyblok asset integration not available. Please upload an image manually.</p>
-        </div>
-      )}
-
-      {/* Secondary Option: Manual Upload */}
-      <div className="upload-options">
-        <div className="or-divider">
-          <span>or</span>
-        </div>
-        
-        <div className="secondary-option">
-          <div 
-            className={`upload-area compact ${isDragging ? 'dragging' : ''} ${isProcessing ? 'processing' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={openFileDialog}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileInputChange}
-              style={{ display: 'none' }}
-              disabled={isProcessing}
-            />
-
-            {isProcessing ? (
-              <div className="upload-processing">
-                <div className="spinner"></div>
-                <p>Processing image...</p>
-              </div>
-            ) : (
-              <div className="upload-content compact">
-                <div className="upload-icon small">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M14.2 2L18 5.8L18 20C18 20.5304 17.7893 21.0391 17.4142 21.4142C17.0391 21.7893 16.5304 22 16 22L4 22C3.46957 22 2.96086 21.7893 2.58579 21.4142C2.21071 21.0391 2 20.5304 2 20L2 4C2 3.46957 2.21071 2.96086 2.58579 2.58579C2.96086 2.21071 3.46957 2 4 2L14.2 2Z"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M14 2L14 8L20 8"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <circle
-                      cx="10"
-                      cy="13"
-                      r="2"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M2 19L6 15L16 25"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-                <h4>Upload New Image</h4>
-                <p>Drop image here or click to browse</p>
-                <div className="upload-requirements">
-                  <small>JPEG, PNG, WebP • Max 10MB</small>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
       {error && (
         <div className="error-message">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 'var(--space-2)', flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+          </svg>
           {error}
         </div>
       )}
@@ -224,18 +135,12 @@ const ImageUpload: FunctionComponent<ImageUploadProps> = ({
           onClick={onBack}
           disabled={isProcessing}
         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
           Back
         </button>
       </div>
-
-      {showAssetSelector && canUseAssets && (
-        <AssetSelector
-          spaceId={spaceId}
-          managementToken={managementToken}
-          onAssetSelect={handleAssetSelect}
-          onClose={() => setShowAssetSelector(false)}
-        />
-      )}
     </div>
   )
 }

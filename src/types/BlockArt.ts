@@ -1,12 +1,23 @@
+export interface BlockArtVersion {
+  imageUrl: string
+  prompt: string
+  altText?: string
+  timestamp: number
+  editMode: 'full' | 'inpaint' | 'generate'
+}
+
 export interface BlockArtData {
   originalImage: string | null
-  editedImage: string | null
+  editedImage: string | null  // This will now contain Storyblok asset URL instead of base64
   prompt: string
-  apiKey: string
   altText?: string
-  versions: ImageVersion[]
-  storyblokAssetId?: number
-  originalAssetId?: number
+  versions: BlockArtVersion[]
+  storyblokAssetId?: number  // ID of the generated image asset
+  originalAssetId?: number   // ID of the original image asset (if uploaded)
+  editMode: 'full' | 'inpaint' | 'generate'
+  mask: string | null
+  status: 'empty' | 'setup' | 'in-progress' | 'completed' | 'error'
+  lastUpdated: number
 }
 
 export interface ImageVersion {
@@ -16,6 +27,8 @@ export interface ImageVersion {
   altText?: string
   timestamp: number
   storyblokAssetId?: number
+  editMode?: 'full' | 'inpaint' | 'generate'
+  mask?: string | null
 }
 
 export interface StoryblokAsset {

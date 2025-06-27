@@ -41,14 +41,14 @@ const ApiKeyInput: FunctionComponent<ApiKeyInputProps> = ({ onSubmit, initialVal
   return (
     <div className="api-key-input">
       <div className="step-header">
-        <h2>Step 1: Enter OpenAI API Key</h2>
-        <p>You'll need an OpenAI API key to use AI-powered image editing features.</p>
+        <h2>Enter OpenAI API Key</h2>
+        <p>Required for AI image editing features.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="api-key-form">
         <div className="form-group">
           <label htmlFor="apiKey" className="form-label">
-            OpenAI API Key
+            API Key
           </label>
           <input
             id="apiKey"
@@ -66,7 +66,7 @@ const ApiKeyInput: FunctionComponent<ApiKeyInputProps> = ({ onSubmit, initialVal
               rel="noopener noreferrer"
               className="help-link"
             >
-              Get your API key from OpenAI
+              Get API key from OpenAI
             </a>
           </div>
         </div>
@@ -87,10 +87,9 @@ const ApiKeyInput: FunctionComponent<ApiKeyInputProps> = ({ onSubmit, initialVal
       </form>
 
       <div className="security-note">
-        <div className="security-icon">🔒</div>
         <div className="security-text">
-          <strong>Your API key is secure</strong>
-          <p>Your API key is only used for this session and is not stored permanently.</p>
+          <strong>Secure</strong>
+          <p>API key used only for this session.</p>
         </div>
       </div>
     </div>
