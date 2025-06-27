@@ -1,5 +1,13 @@
 # BlockArt Storyblok Field Plugin
 
+[![React](https://img.shields.io/badge/React-18.3-61DAFB?style=for-the-badge&logo=react&logoColor=white)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-5.4-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-5.5-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com/)
+[![Storyblok](https://img.shields.io/badge/Storyblok-Field_Plugin-09B3AF?style=for-the-badge&logo=storyblok&logoColor=white)](https://www.storyblok.com/)
+[![pnpm](https://img.shields.io/badge/pnpm-8.15-F69220?style=for-the-badge&logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](./LICENSE)
+
 A powerful Storyblok field plugin for AI-powered image editing and asset management.
 
 ## Prerequisites
@@ -22,7 +30,7 @@ The easiest way to get started is to use our pre-built plugin file:
 |------|------------|--------------|
 | 1 | ![Plugin Step 1](./media/plugin1.png) | Go to **My Plugins** in your Storyblok account and click **New Field-type** |
 | 2 | ![Plugin Step 2](./media/plugin2.png) | Enter a name for your plugin (e.g., "my-blockart-plugin") and click **Save** |
-| 3 | ![Plugin Step 3](./media/plugin3.png) | Copy the contents of `./build_plugin.js` from this repository and paste it into the code editor, then click **Save** and **Publish** |
+| 3 | ![Plugin Step 3](./media/plugin3.png) | Copy the contents of [`./build_plugin.js`](https://raw.githubusercontent.com/youneslaaroussi/blockart/refs/heads/main/build_plugin.js) from this repository and paste it into the code editor, then click **Save** and **Publish** |
 
 ### Option 2: Build from Source
 
