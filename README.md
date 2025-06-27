@@ -10,6 +10,8 @@
 
 A powerful Storyblok field plugin for AI-powered image editing and asset management.
 
+![Architectural Diagram](./media/Diagram.png)
+
 ## Prerequisites
 
 Before getting started, make sure you have the following installed and set up:
