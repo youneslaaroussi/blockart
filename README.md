@@ -12,6 +12,29 @@ A powerful Storyblok field plugin for AI-powered image editing and asset managem
 
 ![Architectural Diagram](./media/Diagram.png)
 
+## 🎥 Watch the Videos
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <a href="https://vimeo.com/1097344530" target="_blank">
+          <img src="https://vumbnail.com/1097344530.jpg" alt="BlockArt Demo Video" width="300"/>
+          <br/>
+          <strong>🚀 Demo Video</strong>
+        </a>
+      </td>
+      <td align="center">
+        <a href="https://vimeo.com/1097344544" target="_blank">
+          <img src="https://vumbnail.com/1097344544.jpg" alt="BlockArt Setup Instructions" width="300"/>
+          <br/>
+          <strong>⚙️ Setup Instructions</strong>
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
+
 ## Prerequisites
 
 Before getting started, make sure you have the following installed and set up:
